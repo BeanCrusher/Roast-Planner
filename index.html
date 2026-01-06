@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Roast Planner</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont;
+      padding: 24px;
+      background: #fafafa;
+    }
+
+    h1, h2 {
+      margin-bottom: 8px;
+    }
+
+    button {
+      padding: 6px 10px;
+      margin-right: 6px;
+      cursor: pointer;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-bottom: 24px;
+      background: white;
+    }
+
+    th, td {
+      border: 1px solid #ddd;
+      padding: 6px;
+      text-align: center;
+    }
+
+    th {
+      background: #f0f0f0;
+    }
+
+    input, select {
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .dashboard {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .card {
+      background: white;
+      padding: 12px 16px;
+      border-radius: 6px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    .used-up {
+      background: #f8d7da;
+    }
+
+    .low-stock {
+      background: #fff3cd;
+    }
+
+    .ok-stock {
+      background: #d4edda;
+    }
+  </style>
+</head>
+<body>
+
+<h1>Roast Planner</h1>
+
+<div class="dashboard" id="dashboard"></div>
+
+<button onclick="addRoastRow()">➕ Add Roast</button>
+<button onclick="savePlans()">💾 Save</button>
+<button onclick="loadPlans()">📂 Load</button>
+<button onclick="exportCSV()">📤 Export CSV</button>
+
+<h2>Roast Plan</h2>
+<table id="roastTable"></table>
+
+<h2>Green Coffee Stock</h2>
+<table id="stockTable"></table>
+
+<script>
+const greenCoffeeStock = [
+  {
+    id: "ethiopia-guji",
+    name: "Ethiopia Guji",
+    batchSizeKg: 12,
+    roastLossPct: 12,
+    greenStockKg: 320,
+    isActive: true
+  },
+  {
+    id: "colombia-huila",
+    name: "Colombia Huila",
+    batchSizeKg: 15,
+    roastLossPct: 11,
+    greenStockKg: 500,
+    isActive: true
+  }
+];
+
+let roastPlans = [];
+
+function calculateRoast(plan, coffee) {
+  const greenRequired =
+    plan.orderWeight / (1 - coffee.roastLossPct / 100);
+
+  const batchesNeeded =
+    Math.ceil(greenRequired / coffee.batchSizeKg);
+
+  const greenInput =
+    batchesNeeded * coffee.batchSizeKg;
+
+  const roastedOutput =
+    greenInput * (1 - coffee.roastLossPct / 100);
+
+  const leftover =
+    roastedOutput - (plan.wholesale + plan.retail + plan.bar);
+
+  return { batchesNeeded, greenInput, roastedOutput, leftover };
+}
+
+function stockStatus(coffee, remaining) {
+  if (remaining <= 0) return "used-up";
+  if (remaining <= coffee.batchSizeKg * 2) return "low-stock";
+  return "ok-stock";
+}
+
+function autoMarkUsedUp() {
+  const usage = {};
+  greenCoffeeStock.forEach(c => usage[c.id] = 0);
+
+  roastPlans.forEach(p => {
+    const c = greenCoffeeStock.find(x => x.id === p.coffeeId);
+    if (!c) return;
+    usage[c.id] += calculateRoast(p, c).greenInput;
+  });
+
+  greenCoffeeStock.forEach(c => {
+    const remaining = c.greenStockKg - usage[c.id];
+    if (remaining <= 0) c.isActive = false;
+  });
+}
+
+function addRoastRow() {
+  roastPlans.push({
+    id: crypto.randomUUID(),
+    coffeeId: greenCoffeeStock.find(c => c.isActive)?.id,
+    orderWeight: 0,
+    wholesale: 0,
+    retail: 0,
+    bar: 0
+  });
+  render();
+}
+
+function savePlans() {
+  localStorage.setItem("roastPlans", JSON.stringify(roastPlans));
+}
+
+function loadPlans() {
+  const saved = localStorage.getItem("roastPlans");
+  if (saved) roastPlans = JSON.parse(saved);
+  render();
+}
+
+function exportCSV() {
+  let csv = [
+    [
+      "Coffee",
+      "Order Weight",
+      "Wholesale",
+      "Retail",
+      "Bar",
+      "Batches",
+      "Green Input",
+      "Roasted Output",
+      "Leftover"
+    ].join(",")
+  ];
+
+  roastPlans.forEach(p => {
+    const c = greenCoffeeStock.find(x => x.id === p.coffeeId);
+    const r = calculateRoast(p, c);
+    csv.push([
+      c.name,
+      p.orderWeight,
+      p.wholesale,
+      p.retail,
+      p.bar,
+      r.batchesNeeded,
+      r.greenInput,
+      r.roastedOutput.toFixed(2),
+      r.leftover.toFixed(2)
+    ].join(","));
+  });
+
+  const blob = new Blob([csv.join("\n")], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "roast_plan.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function render() {
+  autoMarkUsedUp();
+  renderRoastTable();
+  renderStockTable();
+  renderDashboard();
+}
+
+function renderRoastTable() {
+  const t = document.getElementById("roastTable");
+  t.innerHTML = `
+    <tr>
+      <th>Coffee</th><th>Order kg</th><th>Wholesale</th>
+      <th>Retail</th><th>Bar</th>
+      <th>Batches</th><th>Green kg</th>
+      <th>Roasted kg</th><th>Leftover</th>
+    </tr>`;
+
+  roastPlans.forEach(p => {
+    const c = greenCoffeeStock.find(x => x.id === p.coffeeId);
+    if (!c) return;
+    const r = calculateRoast(p, c);
+
+    t.innerHTML += `
+      <tr>
+        <td>
+          <select onchange="p.coffeeId=this.value;render()">
+            ${greenCoffeeStock
+              .filter(c => c.isActive || c.id === p.coffeeId)
+              .map(c =>
+                `<option value="${c.id}" ${c.id===p.coffeeId?"selected":""}>
+                  ${c.name}${c.isActive ? "" : " (used up)"}
+                </option>`
+              ).join("")}
+          </select>
+        </td>
+        <td><input type="number" value="${p.orderWeight}" oninput="p.orderWeight=+this.value;render()"></td>
+        <td><input type="number" value="${p.wholesale}" oninput="p.wholesale=+this.value;render()"></td>
+        <td><input type="number" value="${p.retail}" oninput="p.retail=+this.value;render()"></td>
+        <td><input type="number" value="${p.bar}" oninput="p.bar=+this.value;render()"></td>
+        <td>${r.batchesNeeded}</td>
+        <td>${r.greenInput}</td>
+        <td>${r.roastedOutput.toFixed(2)}</td>
+        <td>${r.leftover.toFixed(2)}</td>
+      </tr>`;
+  });
+}
+
+function renderStockTable() {
+  const usage = {};
+  greenCoffeeStock.forEach(c => usage[c.id] = 0);
+
+  roastPlans.forEach(p => {
+    const c = greenCoffeeStock.find(x => x.id === p.coffeeId);
+    usage[c.id] += calculateRoast(p, c).greenInput;
+  });
+
+  const t = document.getElementById("stockTable");
+  t.innerHTML = `
+    <tr>
+      <th>Coffee</th><th>Initial kg</th>
+      <th>Used kg</th><th>Remaining kg</th>
+    </tr>`;
+
+  greenCoffeeStock.forEach(c => {
+    const remaining = c.greenStockKg - usage[c.id];
+    const status = stockStatus(c, remaining);
+
+    t.innerHTML += `
+      <tr class="${status}">
+        <td>${c.name}</td>
+        <td>${c.greenStockKg}</td>
+        <td>${usage[c.id]}</td>
+        <td>${remaining}</td>
+      </tr>`;
+  });
+}
+
+function renderDashboard() {
+  let totalBatches = 0;
+  let totalGreen = 0;
+
+  roastPlans.forEach(p => {
+    const c = greenCoffeeStock.find(x => x.id === p.coffeeId);
+    const r = calculateRoast(p, c);
+    totalBatches += r.batchesNeeded;
+    totalGreen += r.greenInput;
+  });
+
+  document.getElementById("dashboard").innerHTML = `
+    <div class="card">Roasts: ${roastPlans.length}</div>
+    <div class="card">Batches: ${totalBatches}</div>
+    <div class="card">Green Used (kg): ${totalGreen}</div>`;
+}
+
+render();
+</script>
+
+</body>
+</html>
