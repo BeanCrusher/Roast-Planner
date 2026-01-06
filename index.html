@@ -30,8 +30,12 @@ function calculate() {
   const loss  = Number(document.getElementById("loss").value);
   const order = Number(document.getElementById("order").value);
 
-  if (!batch || !loss || !order) {
-    output.textContent = "Enter values to calculate";
+  if (
+    Number.isNaN(batch) ||
+    Number.isNaN(loss) ||
+    Number.isNaN(order)
+  ) {
+    output.textContent = "Enter numbers to calculate";
     return;
   }
 
@@ -40,11 +44,10 @@ function calculate() {
   const greenInput = batches * batch;
   const roastedOut = greenInput * (1 - loss / 100);
 
-  output.textContent = `
-Batches Needed: ${batches}
-Green Input (kg): ${greenInput.toFixed(2)}
-Roasted Output (kg): ${roastedOut.toFixed(2)}
-`;
+  output.textContent =
+    "Batches Needed: " + batches + "\n" +
+    "Green Input (kg): " + greenInput.toFixed(2) + "\n" +
+    "Roasted Output (kg): " + roastedOut.toFixed(2);
 }
 
 document.querySelectorAll("input")
